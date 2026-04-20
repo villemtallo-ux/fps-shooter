@@ -848,7 +848,7 @@ body::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:9999;
     <div class="param-block">
       <div class="param-title"><span class="idx">[02]</span> SERVER</div>
       <div class="settings">
-        <label>URL <input id="mp-url" type="text" value="" placeholder="ws://localhost:8787" style="background:rgba(0,0,0,.4);border:1px solid rgba(255,255,255,.15);color:#cfe;padding:6px 8px;font-family:inherit;font-size:12px;letter-spacing:.1em;width:240px"/></label>
+        <label>URL <input id="mp-url" type="text" value="" placeholder="wss://fps-shooter-2lon.onrender.com" style="background:rgba(0,0,0,.4);border:1px solid rgba(255,255,255,.15);color:#cfe;padding:6px 8px;font-family:inherit;font-size:12px;letter-spacing:.1em;width:240px"/></label>
       </div>
     </div>
 
@@ -8919,14 +8919,11 @@ function updatePerksList(){
     const u = localStorage.getItem('ns_mp_url');  if(u) mpUrlInput.value  = u;
   } catch(_){}
 
-  // default server URL = same host as page if loaded via http(s), else ws://localhost:8787
+  // Default multiplayer server: public Render deployment.
+  // Users can still override by typing a different URL (e.g. ws://localhost:8787 for local dev).
+  const DEFAULT_MP_URL = 'wss://fps-shooter-2lon.onrender.com';
   if(!mpUrlInput.value){
-    if(location.protocol === 'http:' || location.protocol === 'https:'){
-      const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
-      mpUrlInput.value = `${proto}//${location.host}`;
-    } else {
-      mpUrlInput.value = 'ws://localhost:8787';
-    }
+    mpUrlInput.value = DEFAULT_MP_URL;
   }
 
   function setStatus(s){ mpStatus.textContent = s; }
