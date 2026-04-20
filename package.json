@@ -1,0 +1,13 @@
+{
+  "name": "neon-siege-coop",
+  "version": "1.0.0",
+  "description": "Co-op WebSocket server + static host for Neon Siege — zero dependencies",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {},
+  "engines": {
+    "node": ">=14"
+  }
+}
