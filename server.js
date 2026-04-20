@@ -15,7 +15,7 @@ process.on('uncaughtException',  (err) => console.error('[uncaught]', err));
 process.on('unhandledRejection', (err) => console.error('[unhandled]', err));
 
 const PORT = process.env.PORT || 8787;
-const ROOM_CODE_LEN = 4;
+const ROOM_CODE_LEN = 6;          // 6-digit numeric PIN, Kahoot-style
 const MAX_PLAYERS_PER_ROOM = 4;
 const ROOM_IDLE_MS = 1000 * 60 * 30; // 30 min -> reap
 
@@ -186,11 +186,12 @@ const rooms = new Map();
 let playerSeq = 0;
 
 function genCode() {
-  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+  // 6-digit numeric PIN (first digit is 1-9 so it never starts with a 0)
   let code;
   do {
-    code = '';
-    for (let i = 0; i < ROOM_CODE_LEN; i++) code += chars[Math.floor(Math.random() * chars.length)];
+    let c = String(1 + Math.floor(Math.random() * 9));
+    for (let i = 1; i < ROOM_CODE_LEN; i++) c += Math.floor(Math.random() * 10);
+    code = c;
   } while (rooms.has(code));
   return code;
 }
@@ -269,7 +270,7 @@ function onConnection(ws) {
 
     if (msg.t === 'join') {
       if (player.roomCode) return;
-      const code = String(msg.roomCode || '').toUpperCase();
+      const code = String(msg.roomCode || '').replace(/\D/g, '');
       const room = rooms.get(code);
       if (!room) return sendTo(player, { t: 'joinFail', reason: 'Room not found' });
       if (room.players.size >= MAX_PLAYERS_PER_ROOM) {
