@@ -845,7 +845,7 @@ body::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:9999;
       </div>
     </div>
 
-    <div class="param-block">
+    <div class="param-block" style="display:none">
       <div class="param-title"><span class="idx">[02]</span> SERVER</div>
       <div class="settings">
         <label>URL <input id="mp-url" type="text" value="" placeholder="wss://fps-shooter-2lon.onrender.com" style="background:rgba(0,0,0,.4);border:1px solid rgba(255,255,255,.15);color:#cfe;padding:6px 8px;font-family:inherit;font-size:12px;letter-spacing:.1em;width:240px"/></label>
@@ -860,14 +860,17 @@ body::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:9999;
     <div class="param-block" id="mp-join-block">
       <div class="param-title"><span class="idx">[04]</span> JOIN ARENA</div>
       <div class="settings">
-        <label>CODE <input id="mp-code" type="text" maxlength="4" placeholder="ABCD" style="background:rgba(0,0,0,.4);border:1px solid rgba(255,255,255,.15);color:#cfe;padding:6px 8px;font-family:inherit;font-size:14px;letter-spacing:.3em;text-transform:uppercase;width:100px;text-align:center"/></label>
+        <label>GAME PIN <input id="mp-code" type="text" inputmode="numeric" pattern="[0-9]*" autocomplete="off" maxlength="6" placeholder="123456" style="background:rgba(0,0,0,.4);border:1px solid rgba(255,255,255,.15);color:#cfe;padding:8px 10px;font-family:inherit;font-size:20px;font-weight:700;letter-spacing:.35em;width:160px;text-align:center"/></label>
         <button id="mp-join-btn" class="btn ghost" style="width:100%">JOIN GAME</button>
       </div>
     </div>
   </aside>
 
   <aside class="ctrls" id="mp-lobby-panel" style="display:none">
-    <div class="ctrls-head">LOBBY · <span id="mp-lobby-code" style="color:#6ff"></span></div>
+    <div class="ctrls-head">LOBBY</div>
+    <div style="text-align:center;margin:12px 0 6px 0;font-size:10px;letter-spacing:.35em;color:rgba(207,238,238,.55)">GAME PIN — SHARE WITH FRIENDS</div>
+    <div id="mp-lobby-code" style="font-family:'Courier New',monospace;font-size:48px;font-weight:900;letter-spacing:.15em;text-align:center;color:#6ff;text-shadow:0 0 18px rgba(102,255,255,.55),0 0 4px rgba(255,255,255,.6);padding:8px 0 4px 0;line-height:1;user-select:all;cursor:pointer" title="Click to copy"></div>
+    <div style="text-align:center;font-size:9px;letter-spacing:.3em;color:rgba(207,238,238,.35);margin-bottom:10px">CLICK CODE TO COPY</div>
     <div id="mp-lobby-list" style="display:flex;flex-direction:column;gap:8px;padding:8px 0"></div>
     <div class="keybinds-hint" style="margin-top:auto">HOST STARTS THE MATCH · GUESTS AUTO-FOLLOW</div>
   </aside>
@@ -8913,18 +8916,16 @@ function updatePerksList(){
   const mpHostBlock = $('mp-host-block');
   const mpJoinBlock = $('mp-join-block');
 
-  // restore saved name / url
+  // Default multiplayer server: public Render deployment.
+  const DEFAULT_MP_URL = 'wss://fps-shooter-2lon.onrender.com';
+
+  // restore saved name; only restore saved URL if it's not a stale localhost entry.
   try {
     const n = localStorage.getItem('ns_mp_name'); if(n) mpNameInput.value = n;
-    const u = localStorage.getItem('ns_mp_url');  if(u) mpUrlInput.value  = u;
+    const u = localStorage.getItem('ns_mp_url');
+    if(u && !/localhost|127\.0\.0\.1/.test(u)) mpUrlInput.value = u;
   } catch(_){}
-
-  // Default multiplayer server: public Render deployment.
-  // Users can still override by typing a different URL (e.g. ws://localhost:8787 for local dev).
-  const DEFAULT_MP_URL = 'wss://fps-shooter-2lon.onrender.com';
-  if(!mpUrlInput.value){
-    mpUrlInput.value = DEFAULT_MP_URL;
-  }
+  if(!mpUrlInput.value) mpUrlInput.value = DEFAULT_MP_URL;
 
   function setStatus(s){ mpStatus.textContent = s; }
 
@@ -8941,9 +8942,19 @@ function updatePerksList(){
   mpBackBtn.addEventListener('click', ()=>{ if(net.role !== 'offline') leaveRoom(); closeMpOverlay(); });
 
   mpHostBtn.addEventListener('click', ()=> hostRoom());
-  mpJoinBtn.addEventListener('click', ()=> joinRoom(mpCodeInput.value.trim().toUpperCase()));
+  mpJoinBtn.addEventListener('click', ()=> joinRoom(mpCodeInput.value.replace(/\D/g,'')));
   mpLeaveBtn.addEventListener('click', ()=> leaveRoom());
   mpStartBtn.addEventListener('click', ()=> hostStartMatch());
+
+  // strip non-digits as the user types the PIN
+  mpCodeInput.addEventListener('input', ()=>{
+    const cleaned = mpCodeInput.value.replace(/\D/g,'').slice(0, 6);
+    if(cleaned !== mpCodeInput.value) mpCodeInput.value = cleaned;
+  });
+  // Enter-to-join from the PIN field
+  mpCodeInput.addEventListener('keydown', (e)=>{
+    if(e.key === 'Enter'){ e.preventDefault(); joinRoom(mpCodeInput.value.replace(/\D/g,'')); }
+  });
 
   // ---------- connection ----------
   function connect(onReady){
@@ -8973,7 +8984,7 @@ function updatePerksList(){
     connect(()=> net.send({ t:'create', name: net.name }));
   }
   function joinRoom(code){
-    if(!/^[A-Z0-9]{4}$/.test(code)){ setStatus('INVALID CODE'); return; }
+    if(!/^\d{6}$/.test(code)){ setStatus('ENTER 6-DIGIT PIN'); return; }
     if(net.ws && net.ws.readyState === 1){ net.send({ t:'join', roomCode:code, name: net.name }); return; }
     connect(()=> net.send({ t:'join', roomCode:code, name: net.name }));
   }
@@ -8991,13 +9002,13 @@ function updatePerksList(){
     switch(m.t){
       case 'created': {
         net.role = 'host'; net.myId = m.yourId; net.roomCode = m.roomCode; net.hostId = m.yourId;
-        setStatus('HOSTING · '+m.roomCode);
+        setStatus('HOSTING · '+formatPin(m.roomCode));
         renderLobby();
         break;
       }
       case 'joined': {
         net.role = 'guest'; net.myId = m.yourId; net.roomCode = m.roomCode; net.hostId = m.hostId;
-        setStatus('JOINED · '+m.roomCode);
+        setStatus('JOINED · '+formatPin(m.roomCode));
         for(const p of m.peers) addPeer(p.id, p.name, p.isHost);
         renderLobby();
         break;
@@ -9151,6 +9162,24 @@ function updatePerksList(){
   }
   function teardownAllPeers(){ for(const id of [...net.peers.keys()]) removePeer(id); }
 
+  // Kahoot-style display: "123 456" with a space in the middle
+  function formatPin(code){
+    if(!code) return '';
+    const mid = Math.ceil(code.length / 2);
+    return code.slice(0, mid) + ' ' + code.slice(mid);
+  }
+
+  // click the big PIN to copy it
+  mpLobbyCode.addEventListener('click', async ()=>{
+    if(!net.roomCode) return;
+    try {
+      await navigator.clipboard.writeText(net.roomCode);
+      const orig = mpLobbyCode.textContent;
+      mpLobbyCode.textContent = 'COPIED';
+      setTimeout(()=>{ if(net.roomCode) mpLobbyCode.textContent = formatPin(net.roomCode); }, 900);
+    } catch(_){}
+  });
+
   function renderLobby(){
     const inRoom = net.role !== 'offline' && !!net.roomCode;
     mpLobby.style.display = inRoom ? '' : 'none';
@@ -9159,7 +9188,7 @@ function updatePerksList(){
     mpLeaveBtn.style.display = inRoom ? '' : 'none';
     mpStartBtn.style.display = (inRoom && net.role === 'host') ? '' : 'none';
     if(!inRoom) return;
-    mpLobbyCode.textContent = net.roomCode;
+    mpLobbyCode.textContent = formatPin(net.roomCode);
     mpLobbyList.innerHTML = '';
     const self = { id: net.myId, name: net.name, isHost: net.role === 'host' };
     const all = [self, ...net.peers.values()];
