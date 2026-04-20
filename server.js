@@ -10,6 +10,10 @@ const fs     = require('fs');
 const path   = require('path');
 const crypto = require('crypto');
 
+// never let a single bad packet kill the whole server
+process.on('uncaughtException',  (err) => console.error('[uncaught]', err));
+process.on('unhandledRejection', (err) => console.error('[unhandled]', err));
+
 const PORT = process.env.PORT || 8787;
 const ROOM_CODE_LEN = 4;
 const MAX_PLAYERS_PER_ROOM = 4;
@@ -152,19 +156,27 @@ class WsClient {
 
 // upgrade handler
 httpServer.on('upgrade', (req, socket, head) => {
-  const key = req.headers['sec-websocket-key'];
-  if (!key) { socket.destroy(); return; }
-  const accept = crypto.createHash('sha1')
-    .update(key + WS_GUID).digest('base64');
-  socket.write(
-    'HTTP/1.1 101 Switching Protocols\r\n' +
-    'Upgrade: websocket\r\n' +
-    'Connection: Upgrade\r\n' +
-    `Sec-WebSocket-Accept: ${accept}\r\n` +
-    '\r\n'
-  );
-  const ws = new WsClient(socket);
-  onConnection(ws);
+  try {
+    const key = req.headers['sec-websocket-key'];
+    if (!key) { socket.destroy(); return; }
+    const accept = crypto.createHash('sha1')
+      .update(key + WS_GUID).digest('base64');
+    socket.write(
+      'HTTP/1.1 101 Switching Protocols\r\n' +
+      'Upgrade: websocket\r\n' +
+      'Connection: Upgrade\r\n' +
+      `Sec-WebSocket-Accept: ${accept}\r\n` +
+      '\r\n'
+    );
+    try { socket.setNoDelay(true); } catch (_) {}
+    try { socket.setKeepAlive(true, 30_000); } catch (_) {}
+    const ws = new WsClient(socket);
+    onConnection(ws);
+    if (head && head.length) ws._onData(head);
+  } catch (err) {
+    console.error('[upgrade]', err);
+    try { socket.destroy(); } catch (_) {}
+  }
 });
 
 // =====================================================================
@@ -243,7 +255,7 @@ function onConnection(ws) {
 
   ws._onMessage = (raw) => {
     let msg;
-    try { msg = JSON.parse(raw); } catch { return; }
+    try { msg = JSON.parse(raw); } catch (_) { return; }
     if (!msg || typeof msg.t !== 'string') return;
 
     if (msg.t === 'create') {
