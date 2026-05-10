@@ -4,7 +4,8 @@
   "description": "Co-op WebSocket server + static host for Neon Siege",
   "main": "server.js",
   "scripts": {
-    "start": "node server.js"
+    "start": "node server.js",
+    "check": "node --check server.js && node scripts/check-inline-js.js"
   },
   "dependencies": {
     "ws": "^8.18.0"

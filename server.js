@@ -8,6 +8,7 @@
 const http = require('http');
 const fs   = require('fs');
 const path = require('path');
+const { URL } = require('url');
 const { WebSocketServer } = require('ws');
 
 process.on('uncaughtException',  (err) => console.error('[uncaught]', err));
@@ -17,9 +18,13 @@ const PORT = process.env.PORT || 8787;
 const ROOM_CODE_LEN = 6;          // 6-digit numeric PIN (Kahoot-style)
 const MAX_PLAYERS_PER_ROOM = 4;
 const ROOM_IDLE_MS = 1000 * 60 * 30; // 30 min -> reap
+const MAX_MESSAGE_BYTES = 16 * 1024;
+const MAX_NAME_LEN = 16;
+const VALID_ID = /^[a-z0-9_-]{1,32}$/i;
 
 // ----- Tiny static file server -----
-const STATIC_DIR = __dirname;
+const STATIC_DIR = path.resolve(__dirname);
+const STATIC_ALLOWLIST = new Set(['/', '/index.html']);
 const MIME = {
   '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css',
   '.json': 'application/json', '.png': 'image/png', '.jpg': 'image/jpeg',
@@ -27,14 +32,31 @@ const MIME = {
 };
 
 const httpServer = http.createServer((req, res) => {
-  let reqPath = decodeURIComponent(req.url.split('?')[0]);
+  let reqPath;
+  try {
+    reqPath = new URL(req.url, 'http://localhost').pathname;
+  } catch (_) {
+    res.statusCode = 400;
+    return res.end('bad request');
+  }
+
   if (reqPath === '/') reqPath = '/index.html';
-  const filePath = path.join(STATIC_DIR, reqPath);
-  if (!filePath.startsWith(STATIC_DIR)) { res.statusCode = 403; return res.end('forbidden'); }
+  if (!STATIC_ALLOWLIST.has(reqPath)) {
+    res.statusCode = 404;
+    return res.end('not found');
+  }
+
+  const filePath = path.resolve(STATIC_DIR, `.${reqPath}`);
+  if (!filePath.startsWith(`${STATIC_DIR}${path.sep}`)) {
+    res.statusCode = 403;
+    return res.end('forbidden');
+  }
+
   fs.readFile(filePath, (err, data) => {
     if (err) { res.statusCode = 404; return res.end('not found'); }
     const ext = path.extname(filePath).toLowerCase();
     res.setHeader('Content-Type', MIME[ext] || 'application/octet-stream');
+    res.setHeader('X-Content-Type-Options', 'nosniff');
     res.end(data);
   });
 });
@@ -85,6 +107,19 @@ function sendTo(player, msg) {
   if (player.ws.readyState === 1) player.ws.send(JSON.stringify(msg));
 }
 
+function cleanName(value) {
+  return String(value || 'OPERATOR')
+    .replace(/[<>\x00-\x1f\x7f]/g, '')
+    .trim()
+    .slice(0, MAX_NAME_LEN) || 'OPERATOR';
+}
+
+function cleanRoomSetting(value) {
+  if (value == null) return null;
+  const text = String(value);
+  return VALID_ID.test(text) ? text : null;
+}
+
 function removePlayer(player) {
   const room = rooms.get(player.roomCode);
   if (!room) return;
@@ -118,14 +153,19 @@ wss.on('connection', (ws) => {
   console.log(`[${player.id}] connected`);
 
   ws.on('message', (raw) => {
+    if (raw.length > MAX_MESSAGE_BYTES) {
+      ws.close(1009, 'message too large');
+      return;
+    }
+
     let msg;
     try { msg = JSON.parse(raw.toString()); } catch (_) { return; }
-    if (!msg || typeof msg.t !== 'string') return;
+    if (!msg || typeof msg.t !== 'string' || !VALID_ID.test(msg.t)) return;
 
     if (msg.t === 'create') {
       if (player.roomCode) return;
-      player.name = (msg.name || 'OPERATOR').slice(0, 16);
-      const room = createRoom(player, msg.mapId, msg.diffId);
+      player.name = cleanName(msg.name);
+      const room = createRoom(player, cleanRoomSetting(msg.mapId), cleanRoomSetting(msg.diffId));
       sendTo(player, { t: 'created', roomCode: room.code, yourId: player.id });
       console.log(`[room ${room.code}] created by ${player.id} (map=${room.mapId}, diff=${room.diffId})`);
       return;
@@ -139,7 +179,7 @@ wss.on('connection', (ws) => {
       if (room.players.size >= MAX_PLAYERS_PER_ROOM) {
         return sendTo(player, { t: 'joinFail', reason: 'Room full' });
       }
-      player.name = (msg.name || 'OPERATOR').slice(0, 16);
+      player.name = cleanName(msg.name);
       player.roomCode = room.code;
       player.isHost = false;
       room.players.set(player.id, player);
@@ -165,8 +205,10 @@ wss.on('connection', (ws) => {
       if (!player.isHost || !player.roomCode) return;
       const room = rooms.get(player.roomCode);
       if (!room) return;
-      if (msg.mapId)  room.mapId  = msg.mapId;
-      if (msg.diffId) room.diffId = msg.diffId;
+      const nextMapId = cleanRoomSetting(msg.mapId);
+      const nextDiffId = cleanRoomSetting(msg.diffId);
+      if (nextMapId)  room.mapId  = nextMapId;
+      if (nextDiffId) room.diffId = nextDiffId;
       broadcast(room, { t: 'setMap', mapId: room.mapId, diffId: room.diffId });
       return;
     }
