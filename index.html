@@ -9412,9 +9412,22 @@ function updatePerksList(){
     for(const p of all){
       const row = document.createElement('div');
       row.style.cssText = 'display:flex;gap:10px;align-items:center;padding:8px 10px;background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.08);font-size:12px;letter-spacing:.1em';
-      row.innerHTML = `<span style="color:${p.isHost?'#6ff':'#9ab'}">${p.isHost?'◆ HOST':'● CREW'}</span>
-                       <span style="flex:1;color:#cfe">${(p.name||'OPERATOR').toUpperCase()}</span>
-                       <span style="color:#89a;font-size:10px">${p.id}</span>`;
+
+      const role = document.createElement('span');
+      role.style.color = p.isHost ? '#6ff' : '#9ab';
+      role.textContent = p.isHost ? '◆ HOST' : '● CREW';
+
+      const name = document.createElement('span');
+      name.style.flex = '1';
+      name.style.color = '#cfe';
+      name.textContent = (p.name || 'OPERATOR').toUpperCase();
+
+      const id = document.createElement('span');
+      id.style.color = '#89a';
+      id.style.fontSize = '10px';
+      id.textContent = p.id || '';
+
+      row.append(role, name, id);
       mpLobbyList.appendChild(row);
     }
   }
